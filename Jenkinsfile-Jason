@@ -1,0 +1,80 @@
+#!/usr/bin/env groovy
+
+def version() {
+    def matcher = readFile( 'pom.xml' ) =~ '<version>(.+)</version>'
+    matcher ? matcher[ 0 ][ 1 ] : null
+}
+
+node( 'maven' ) {
+
+    stage name: 'Build', concurrency: 1
+        git url: 'https://bitbucket.org/motabilitydiscovery/springboot-on-openshift.git',
+            branch: 'master',
+            credentialsId: 'bitbucket-mo-external-jc'
+
+        def v = version()
+
+        sh "mvn clean compile"
+
+        sh "mvn test"
+        sh "mvn verify"
+
+        // echo 'Executing Contract Tests...'
+        // echo 'Executing Security Tests...'
+        // echo 'Gathering Metrics...'
+
+        sh "oc project greeter-dev"
+        sh "oc delete svc,route -l app=springboot-helloworld -n greeter-dev"
+        sh "oc new-build --binary --name=springboot-helloworld --labels=app=springboot-helloworld -n greeter-dev || true"
+        sh "oc start-build springboot-helloworld --from-dir=. --follow -n greeter-dev"
+        sh "oc new-app springboot-helloworld --labels=app=springboot-helloworld -n greeter-dev || oc deploy springboot-helloworld -n greeter-dev"
+        sh "oc expose svc/springboot-helloworld -n greeter-dev"
+
+        echo 'Build stage successful'
+
+    stage name: 'Acceptance', concurrency: 1
+        // echo 'Executing Smoke Tests...'
+        // echo 'Executing Acceptance Tests...'
+        // echo 'Executing Functional Tests...'
+        // echo 'Executing Security Tests...'
+        // echo 'Executing Load/Stress Tests...'
+
+        sh "oc project greeter-tst"
+        sh "oc tag greeter-dev/springboot-helloworld:latest greeter-tst/springboot-helloworld:${v}"
+        sh "oc delete svc,route -l app=springboot-helloworld -n greeter-tst"
+        sh "oc new-app springboot-helloworld:${v} --labels=app=springboot-helloworld -n greeter-tst || oc deploy springboot-helloworld -n greeter-tst"
+        sh "oc expose svc/springboot-helloworld -n greeter-tst"
+
+        echo 'Acceptance stage successful'
+
+    stage name: 'Staging', concurrency: 1
+        // echo 'Executing Smoke Tests...'
+        // echo 'Executing Functional Tests...'
+        // echo 'Executing Security Tests...'
+        // echo 'Executing Load/Stress Tests...'
+        // echo 'Checking Compliance...'
+
+        sh "oc project greeter-stg"
+        sh "oc tag greeter-dev/springboot-helloworld:latest greeter-stg/springboot-helloworld:${v}"
+        sh "oc delete svc,route -l app=springboot-helloworld -n greeter-stg"
+        sh "oc new-app springboot-helloworld:${v} --labels=app=springboot-helloworld -n greeter-stg || oc deploy springboot-helloworld -n greeter-stg"
+        sh "oc expose svc/springboot-helloworld -n greeter-stg"
+
+        echo 'Staging stage successful'
+        echo 'Executing Functional Tests...'
+        sh "./gradlew integrationTest"
+
+    stage name: 'Production', concurrency: 1
+        // input message: "Promote to Production?", ok: "Promote"
+        // echo 'Performing A/B Testing...'
+        // echo 'Performing Blue/Green Deployment...'
+
+        sh "oc project greeter-prd"
+        sh "oc tag greeter-dev/springboot-helloworld:latest greeter-prd/springboot-helloworld:${v}"
+        sh "oc delete svc,route -l app=springboot-helloworld -n greeter-prd"
+        sh "oc new-app springboot-helloworld:${v} --labels=app=springboot-helloworld -n greeter-prd || oc deploy springboot-helloworld -n greeter-prd"
+        sh "oc expose svc/springboot-helloworld -n greeter-prd"
+
+        echo 'Successfully released to Production'
+
+}

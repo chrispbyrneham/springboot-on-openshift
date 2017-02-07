@@ -1,0 +1,140 @@
+import org.apache.tools.ant.taskdefs.condition.Os
+
+apply plugin: 'idea'
+apply plugin: 'java'
+apply plugin: 'groovy'
+apply plugin: 'maven'
+apply from: "gradle/osSpecificDownloads.gradle"
+
+version = '1.0.0-SNAPSHOT'
+
+/** VARIABLES */
+ext {
+
+    springBootRelease='1.4.3.RELEASE'
+    servletVersion='3.0.1'
+    jaxrsVersion='2.0.1'
+    cxfVersion='3.1.9'
+    log4jVersion='1.2.17'
+    jettisonVersion='1.3.8'
+    hamcrestVersion='1.3'
+    mockitoVersion='1.10.19'
+    slf4jVersion='1.7.22'
+
+    groovyVersion = '2.4.8'
+    gebVersion = '1.1.1'
+    seleniumVersion = '2.53.0'
+    chromeDriverVersion = '2.24'
+    phantomJsVersion = '2.1.1'
+
+    springRelease='1.4.3.RELEASE'
+    spockVersion='1.0-groovy-2.4'
+    spockReportsVersion='1.2.13'
+
+    cucumberJvmVersion = '1.2.4'
+}
+
+repositories {
+    mavenCentral()
+}
+
+sourceSets {
+    integrationTest {
+        groovy {
+            compileClasspath += main.output + test.output
+            runtimeClasspath += main.output + test.output
+            srcDir file('src/integrationTest/groovy')
+        }
+        resources.srcDir file('src/integrationTest/resources')
+    }
+}
+
+configurations {
+    integrationTestCompile.extendsFrom testCompile
+    integrationTestRuntime.extendsFrom testRuntime
+}
+
+dependencies {
+
+    compile "org.springframework.boot:spring-boot-starter-web:$springBootRelease" ,
+            "org.springframework.boot:spring-boot-starter-test:$springBootRelease" ,
+            "javax.servlet:javax.servlet-api:$servletVersion" ,
+            "javax.ws.rs:javax.ws.rs-api:$jaxrsVersion" ,
+            "org.apache.cxf:cxf-rt-frontend-jaxrs:$cxfVersion" ,
+            "org.apache.cxf:cxf-rt-rs-extension-providers:$cxfVersion"
+
+    runtime "org.apache.cxf:cxf-rt-transports-http-jetty:$cxfVersion" ,
+            "org.codehaus.jettison:jettison:$jettisonVersion"
+
+    testCompile "org.gebish:geb-spock:$gebVersion" ,
+            "com.athaydes:spock-reports:$spockReportsVersion" ,
+            "org.codehaus.groovy:groovy-all:$groovyVersion" ,
+            "junit:junit:4.11" ,
+            "org.hamcrest:hamcrest-all:$hamcrestVersion" ,
+            "org.mockito:mockito-all:$mockitoVersion" ,
+            "info.cukes:cucumber-core:$cucumberJvmVersion" ,
+            "info.cukes:cucumber-groovy:$cucumberJvmVersion" ,
+            "info.cukes:cucumber-junit:$cucumberJvmVersion" ,
+            "log4j:log4j:$log4jVersion" ,
+            "org.slf4j:slf4j-log4j12:$slf4jVersion"
+
+    testCompile("org.spockframework:spock-core:$spockVersion") {
+        exclude group: "org.codehaus.groovy"
+        exclude group: "org.hamcrest"
+    }
+
+    // Drivers
+    integrationTestCompile("com.codeborne:phantomjsdriver:1.3.0") {
+        // phantomjs driver pulls in a different selenium version
+        transitive = false
+    }
+}
+
+task integrationTest(type: Test) {
+    println "Executing integration Tests"
+    dependsOn unzipPhantomJs
+
+    def phantomJsFilename = Os.isFamily(Os.FAMILY_WINDOWS) ? "phantomjs.exe" : "bin/phantomjs"
+    systemProperty "phantomjs.binary.path", new File(unzipPhantomJs.outputs.files.singleFile, phantomJsFilename).absolutePath
+
+    testClassesDir = sourceSets.integrationTest.output.classesDir
+    classpath = sourceSets.integrationTest.runtimeClasspath
+    outputs.upToDateWhen { false }
+    doLast {
+        javaexec {
+            main = "cucumber.api.cli.Main"
+            classpath = configurations.integrationTestRuntime
+            args = ['--plugin', 'pretty', '--plugin', 'json:build/cucumber.json', '--glue', 'src/integrationTest/resources/steps', 'src/integrationTest/resources/features']
+        }
+    }
+}
+
+//Ensure that the check task fails the build if there are failing integration tests.
+check.dependsOn integrationTest
+//Ensure that our unit tests are run before our integration tests
+integrationTest.mustRunAfter test
+
+//Ensure that the HTML reports of unit and integration tests are written to different directories.
+tasks.withType(Test) {
+    reports.html.destination = file("${reporting.baseDir}/${name}")
+}
+
+task sourceSetProperties << {
+    sourceSets {
+        integrationTest {
+            println "java.srcDirs = ${java.srcDirs}"
+            println "resources.srcDirs = ${resources.srcDirs}"
+            println "java.files = ${java.files.name}"
+            println "allJava.files = ${allJava.files.name}"
+            println "resources.files = ${resources.files.name}"
+            println "allSource.files = ${allSource.files.name}"
+            println "output.classesDir = ${output.classesDir}"
+            println "output.resourcesDir = ${output.resourcesDir}"
+            println "output.files = ${output.files}"
+        }
+    }
+}
+
+task wrapper(type: Wrapper) {
+    gradleVersion = '3.3' //we want gradle 2.10 to run this project
+}
