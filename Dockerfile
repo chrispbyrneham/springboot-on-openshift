@@ -7,7 +7,7 @@ EXPOSE 10000
 RUN adduser -D -g '' app-user
 USER app-user
 WORKDIR /home/app-user
-
+RUN pwd && ls -l
 COPY target/rest-springboot-1.0.0.jar .
 COPY target/lib/ ./lib
 
